@@ -14,7 +14,7 @@ if (!homeDir) {
   Deno.exit(1);
 }
 
-const configPath = resolve(homeDir, ".dug", "cmd.json");
+const configPath = resolve(homeDir, ".ug", "cmd.json");
 
 function setUpgradeCommand(name: string, command: string) {
   ensureDirSync(dirname(configPath));
@@ -98,10 +98,11 @@ async function runUpgradeCommand(name: string) {
         pipe.stderr.pipeTo(Deno.stderr.writable);
       }
       children.push(child);
+      children.push(pipe);
     }
-    children.forEach(async (child) => {
+    for (const child of children) {
       await wait(child);
-    });
+    }
     Deno.exit(0);
   } catch (err) {
     console.error(err);
