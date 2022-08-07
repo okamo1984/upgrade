@@ -46,6 +46,8 @@ jobs:
           version: master        
       - name: Compile Zig
         run: zig build-exe --name ugz main.zig
+      - name: Compile Zig for MacOS M1
+        run: zig build-exe --name ugz-aarch64-macos -target aarch64-macos  main.zig
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
@@ -53,3 +55,4 @@ jobs:
             ugd
             ugg
             ugz
+            ugz-aarch64-macos
