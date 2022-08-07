@@ -45,7 +45,7 @@ jobs:
         with:
           version: master        
       - name: Compile Zig
-        run: zig build-exec --name ugz main.zig
+        run: zig build-exe --name ugz main.zig
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
