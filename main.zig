@@ -122,11 +122,10 @@ pub fn main() anyerror!void {
         var parser = json.Parser.init(allocator, false);
         var tree = try parser.parse(file_buf);
         var upgrade_command = tree.root.Object.get(cli_command).?.String;
-        var split_it = std.mem.split(u8, upgrade_command, " ");
         var array = std.ArrayList([]const u8).init(allocator);
-        while (split_it.next()) |word| {
-            try array.append(word);
-        }
+        try array.append("bash");
+        try array.append("-c");
+        try array.append(upgrade_command);
 
         var child_process = std.ChildProcess.init(array.items, allocator);
         var term = try child_process.spawnAndWait();
