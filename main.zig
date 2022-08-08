@@ -14,6 +14,7 @@ fn readConfig(config_file_path: []const u8, allocator: std.mem.Allocator) anyerr
         config_file = file;
     } else |err| switch (err) {
         error.FileNotFound => {
+            try std.fs.makeDirAbsolute(std.fs.path.dirname(config_file_path).?);
             config_file = try std.fs.createFileAbsolute(config_file_path, std.fs.File.CreateFlags{ .read = true });
         },
         else => {
