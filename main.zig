@@ -79,7 +79,7 @@ pub fn main() anyerror!void {
             tree = try parser.parse(file_buf);
         }
         try tree.root.Object.put(name, json.Value{ .String = upgrade_command });
-        var file = try std.fs.openFileAbsolute(config_file_path, std.fs.File.OpenFlags{ .mode = .write_only });
+        var file = try std.fs.createFileAbsolute(config_file_path, .{});
         defer file.close();
         try tree.root.jsonStringify(json.StringifyOptions{}, file.writer());
     } else if (std.mem.eql(u8, cli_command, "unset")) {
