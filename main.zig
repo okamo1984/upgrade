@@ -1,5 +1,6 @@
 const std = @import("std");
 const json = std.json;
+const Allocator = std.mem.Allocator;
 
 const logger = std.log.scoped(.main);
 pub const log_level = .debug;
@@ -8,8 +9,65 @@ fn getHomeDir() []const u8 {
     return std.os.getenv("HOME") orelse "";
 }
 
-fn readConfig(config_file_path: []const u8, allocator: std.mem.Allocator) anyerror![]const u8 {
-    var config_file: std.fs.File = undefined;
+const Config = struct {
+    allocator: Allocator,
+    tree: json.ValueTree,
+    file_path: []const u8,
+
+    const Self = @This();
+
+    pub fn init(allocator: Allocator, tree: json.ValueTree, file_path: []const u8) Config {
+        return Config{
+            .allocator = allocator,
+            .tree = tree,
+            .file_path = file_path,
+        };
+    }
+
+    pub fn upsert(self: *Self, name: []const u8, command: []const u8) !void {
+        try self.tree.root.Object.put(name, json.Value{ .String = command });
+        const file = try std.fs.createFileAbsolute(self.file_path, .{});
+        try self.tree.root.jsonStringify(json.StringifyOptions{}, file.writer());
+        file.close();
+    }
+
+    pub fn remove(self: *Self, name: []const u8) !void {
+        if (!self.tree.root.Object.orderedRemove(name)) {
+            logger.info("{s} is not set in config", .{name});
+            std.os.exit(1);
+        }
+        var file = try std.fs.createFileAbsolute(self.file_path, .{});
+        try self.tree.root.jsonStringify(json.StringifyOptions{ .whitespace = .{} }, file.writer());
+        file.close();
+    }
+
+    pub fn printAll(self: Self) !void {
+        const config = self.tree.root.Object;
+        var array = std.ArrayList([]u8).init(self.allocator);
+        for (config.keys()) |key| {
+            try array.append(try std.fmt.allocPrint(self.allocator, "{s} = {s}", .{ key, config.get(key).?.String }));
+        }
+        const s = try std.mem.join(self.allocator, "\n", array.items);
+        std.debug.print("{s}", .{s});
+    }
+
+    pub fn runCmd(self: Self, command: []const u8) !u8 {
+        const upgrade_command = self.tree.root.Object.get(command).?.String;
+        var array = std.ArrayList([]const u8).init(self.allocator);
+        try array.append("bash");
+        try array.append("-c");
+        try array.append(upgrade_command);
+
+        var child_process = std.ChildProcess.init(array.items, self.allocator);
+        var term = try child_process.spawnAndWait();
+        return term.Exited;
+    }
+};
+
+pub fn parseConfig(config_file_path: []const u8, allocator: Allocator) !Config {
+    var config_file: ?std.fs.File = null;
+    defer if (config_file) |file| file.close();
+
     if (std.fs.openFileAbsolute(config_file_path, std.fs.File.OpenFlags{ .mode = .read_only })) |file| {
         config_file = file;
     } else |err| switch (err) {
@@ -22,9 +80,16 @@ fn readConfig(config_file_path: []const u8, allocator: std.mem.Allocator) anyerr
             return err;
         },
     }
-    var file_buf = try config_file.readToEndAlloc(allocator, 0x10000000);
-    defer config_file.close();
-    return file_buf;
+    const file_buf = try config_file.?.readToEndAlloc(allocator, 0x10000000);
+    if (std.mem.eql(u8, file_buf, "") or std.mem.eql(u8, file_buf, "{}")) {
+        var tree = json.ValueTree{ .arena = std.heap.ArenaAllocator.init(allocator), .root = json.Value{ .Object = json.ObjectMap.init(allocator) } };
+        return Config.init(allocator, tree, config_file_path);
+    }
+
+    var parser = json.Parser.init(allocator, false);
+    var tree = try parser.parse(file_buf);
+
+    return Config.init(allocator, tree, config_file_path);
 }
 
 pub fn main() anyerror!void {
@@ -38,15 +103,17 @@ pub fn main() anyerror!void {
         logger.info("Could not get home directory from $HOME environemt variable", .{});
         std.os.exit(1);
     }
-    var config_file_path = try std.fs.path.join(allocator, &.{ home_dir, ".ug", "cmd.json" });
+    const config_file_path: []const u8 = try std.fs.path.join(allocator, &.{ home_dir, ".ug", "cmd.json" });
 
     var arg_it = try std.process.ArgIterator.initWithAllocator(allocator);
     if (!arg_it.skip()) @panic("Could not find self argument");
 
-    var cli_command = arg_it.next() orelse {
+    const cli_command = arg_it.next() orelse {
         logger.info("Could not find command", .{});
         std.os.exit(1);
     };
+
+    var config = try parseConfig(config_file_path, allocator);
     if (std.mem.eql(u8, cli_command, "set")) {
         var name: []const u8 = "";
         var upgrade_command: []const u8 = "";
@@ -69,19 +136,7 @@ pub fn main() anyerror!void {
             std.os.exit(1);
         }
 
-        const file_buf = try readConfig(config_file_path, allocator);
-        var tree: json.ValueTree = undefined;
-        if (std.mem.eql(u8, file_buf, "")) {
-            var arena_allocator = std.heap.ArenaAllocator.init(allocator);
-            tree = json.ValueTree{ .arena = arena_allocator, .root = json.Value{ .Object = json.ObjectMap.init(allocator) } };
-        } else {
-            var parser = json.Parser.init(allocator, false);
-            tree = try parser.parse(file_buf);
-        }
-        try tree.root.Object.put(name, json.Value{ .String = upgrade_command });
-        var file = try std.fs.createFileAbsolute(config_file_path, .{});
-        defer file.close();
-        try tree.root.jsonStringify(json.StringifyOptions{}, file.writer());
+        try config.upsert(name, upgrade_command);
     } else if (std.mem.eql(u8, cli_command, "unset")) {
         var name: []const u8 = "";
 
@@ -96,39 +151,10 @@ pub fn main() anyerror!void {
             std.os.exit(1);
         }
 
-        const file_buf = try readConfig(config_file_path, allocator);
-        var parser = json.Parser.init(allocator, false);
-        var tree = try parser.parse(file_buf);
-        if (!tree.root.Object.orderedRemove(name)) {
-            logger.info("{s} is not set in config", .{name});
-            std.os.exit(1);
-        }
-        var file = try std.fs.createFileAbsolute(config_file_path, .{});
-        defer file.close();
-        try tree.root.jsonStringify(json.StringifyOptions{}, file.writer());
+        try config.remove(name);
     } else if (std.mem.eql(u8, cli_command, "list")) {
-        const file_buf = try readConfig(config_file_path, allocator);
-        var parser = json.Parser.init(allocator, false);
-        var tree = try parser.parse(file_buf);
-        var config = tree.root.Object;
-        var buf: [1000]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
-        for (config.keys()) |key| {
-            try std.fmt.format(fbs.writer(), "{s} = {s}\n", .{ key, config.get(key).?.String });
-        }
-        std.debug.print("{s}", .{fbs.getWritten()});
+        try config.printAll();
     } else {
-        const file_buf = try readConfig(config_file_path, allocator);
-        var parser = json.Parser.init(allocator, false);
-        var tree = try parser.parse(file_buf);
-        var upgrade_command = tree.root.Object.get(cli_command).?.String;
-        var array = std.ArrayList([]const u8).init(allocator);
-        try array.append("bash");
-        try array.append("-c");
-        try array.append(upgrade_command);
-
-        var child_process = std.ChildProcess.init(array.items, allocator);
-        var term = try child_process.spawnAndWait();
-        std.os.exit(term.Exited);
+        std.os.exit(try config.runCmd(cli_command));
     }
 }
