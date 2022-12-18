@@ -9,11 +9,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  deno:
-    if: ${{ github.ref == 'refs/heads/main' }}
-    uses: okamo1984/workflows/.github/workflows/deno.yml@a05baa16e2f58bdb0714094da754aa191fd3d34e
-    with:
-      checkfiles: main.ts
+  # deno:
+  #   if: ${{ github.ref == 'refs/heads/main' }}
+  #   uses: okamo1984/workflows/.github/workflows/deno.yml@a05baa16e2f58bdb0714094da754aa191fd3d34e
+  #   with:
+  #     checkfiles: main.ts
 
   zig:
     runs-on: ubuntu-latest
@@ -33,15 +33,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Install Deno
-        uses: denoland/setup-deno@v1
-      - name: Compile Deno
-        run: deno compile -o ugd --unstable --allow-read --allow-env --allow-run --allow-write main.ts
-      - uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-      - name: Compile Go
-        run: go build -o ugg
+      # - name: Install Deno
+      #   uses: denoland/setup-deno@v1
+      # - name: Compile Deno
+      #   run: deno compile -o ugd --unstable --allow-read --allow-env --allow-run --allow-write main.ts
+      # - uses: actions/setup-go@v3
+      #   with:
+      #     go-version: 1.19
+      # - name: Compile Go
+      #   run: go build -o ugg
       - uses: goto-bus-stop/setup-zig@v1
         with:
           version: master        
@@ -53,7 +53,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            ugd
-            ugg
             ugz
             ugz-aarch64-macos
