@@ -53,10 +53,20 @@ const Config = struct {
 
     pub fn runCmd(self: Self, command: []const u8) !u8 {
         const upgrade_command = self.tree.root.Object.get(command).?.String;
+        return self.spawnCmd(upgrade_command);
+    }
+
+    pub fn runAll(self: Self) !void {
+        for (self.tree.root.Object.values()) |command| {
+            _ = try self.spawnCmd(command.String);
+        }
+    }
+
+    fn spawnCmd(self: Self, command: []const u8) !u8 {
         var array = std.ArrayList([]const u8).init(self.allocator);
         try array.append("bash");
         try array.append("-c");
-        try array.append(upgrade_command);
+        try array.append(command);
 
         var child_process = std.ChildProcess.init(array.items, self.allocator);
         var term = try child_process.spawnAndWait();
@@ -154,6 +164,8 @@ pub fn main() anyerror!void {
         try config.remove(name);
     } else if (std.mem.eql(u8, cli_command, "list")) {
         try config.printAll();
+    } else if (std.mem.eql(u8, cli_command, "all")) {
+        try config.runAll();
     } else {
         std.os.exit(try config.runCmd(cli_command));
     }
